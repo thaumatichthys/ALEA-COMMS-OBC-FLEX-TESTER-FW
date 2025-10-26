@@ -17,15 +17,15 @@ const uint8_t REG_NUM_IOC_BASE = 0x18; // io control
 const uint8_t REG_NUM_MSK_BASE = 0x20; // mask interrupt
 const uint8_t CMD_AUTO_INCREMENT_BIT = (1 << 7);
 
-#define PORT1_PCA9505_ADDR (0b0100000 | (0b001))
-#define PORT2_PCA9505_ADDR (0b0100000 | (0b000))
+#define PORT1_PCA9505_ADDR ((0b0100000 | (0b001)))
+#define PORT2_PCA9505_ADDR ((0b0100000 | (0b000)))
 
-// repeating_timer seven_seg_timer;
+struct repeating_timer seven_seg_timer;
 struct SevSeg4Obj sevseg;
 
 void init_i2c() {
     // I2C Initialisation. Using it at 400Khz.
-    i2c_init(I2C_PORT, 400*1000);
+    i2c_init(I2C_PORT, 100*1000);
 
     gpio_set_function(I2C_SDA, GPIO_FUNC_I2C);
     gpio_set_function(I2C_SCL, GPIO_FUNC_I2C);
@@ -46,7 +46,12 @@ uint64_t read_all_pins(uint8_t addr) {
     }
     return ret;
 }
-
+uint8_t reverse_bits(uint8_t n) {
+    n = (n >> 4) | (n << 4);             // swap nibbles
+    n = ((n & 0xCC) >> 2) | ((n & 0x33) << 2); // swap bit pairs
+    n = ((n & 0xAA) >> 1) | ((n & 0x55) << 1); // swap adjacent bits
+    return n;
+}
 int pca9505_set_pins_hi_z(uint8_t addr) {
     // set up PCA9505 gpios as inputs, pulled up
     uint8_t command_reg = (REG_NUM_IOC_BASE & 0b00111111) | (CMD_AUTO_INCREMENT_BIT);
@@ -54,6 +59,7 @@ int pca9505_set_pins_hi_z(uint8_t addr) {
         command_reg,
         0xFF, 0xFF, 0xFF, 0xFF, 0xFF
     };
+
     return i2c_write_blocking(I2C_PORT, addr, data, 5, false);
 }
 
@@ -71,17 +77,28 @@ void test_hardware() {
     int val1 = pca9505_set_pins_hi_z(PORT1_PCA9505_ADDR);
     int val2 = pca9505_set_pins_hi_z(PORT2_PCA9505_ADDR);
     printf("testing PCA9505s\n");
-    if (val1 > 0 && val2 > 0) {
-        printf("both PCA9505 ACK\n");
-    }
-    else {
-        if (val1 > 0) printf("only PORT1 ACK\n");
-        if (val2 > 0) printf("only PORT2 ACK\n");
-    }
+    // if (val1 > 0 && val2 > 0) {
+    //     printf("both PCA9505 ACK\n");
+    // }
+    // else {
+    //     printf("neither responded\n");
+    //     if (val1 > 0) printf("only PORT1 ACK\n");
+    //     if (val2 > 0) printf("only PORT2 ACK\n");
+    // }
+
+    // for (uint8_t i = 0; i < 128; i++) {
+    //     int ret = pca9505_set_pins_hi_z(i);
+    //     if (ret != -1) {
+    //         printf("address %d ACKed\n", i);
+    //     }
+    // }
+
+    printf("return vals: %d\n", val1);
 }
 
-void SevenSegment_timer_ISR() {
-
+bool SevenSegment_timer_ISR(struct repeating_timer *t) {
+    SevSeg_UpdateFSM(sevseg);
+    return true;
 }
 
 int main() {
@@ -90,6 +107,9 @@ int main() {
 
     gpio_init(25);
     gpio_set_dir(25, GPIO_OUT);
+    gpio_init(PCA9505_RST);
+    gpio_set_dir(PCA9505_RST, GPIO_OUT);
+    gpio_put(PCA9505_RST, 1);
 
     init_i2c();
 
@@ -107,7 +127,16 @@ int main() {
     sevseg.segment_pins[6] = DISP_SEG_G;
     sevseg.number_of_segments_used = 7;
     sevseg.is_common_cathode = true;
+
+    sevseg.frame_buffer_[0] = 0xFA;
+    sevseg.frame_buffer_[1] = 0xFB;
+    sevseg.frame_buffer_[2] = 0xFC;
+    sevseg.frame_buffer_[3] = 0xFD;
+
+    SevSeg_InitGPIOs(sevseg);
     
+
+    add_repeating_timer_us(500, SevenSegment_timer_ISR, NULL, &seven_seg_timer);
 
 
     while(1) {

@@ -15,4 +15,5 @@
 #define DISP_SEG_G      21
 
 #define COMMON_CATHODE  true
-
+#define PCA9505_RST     14
+#define PCA9505_OE      12
