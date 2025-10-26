@@ -3,19 +3,7 @@
 
 #define NUM_DIGITS 4
 
-struct SevSeg4Cfg {
-    // uint pin_A;
-    // uint pin_B;
-    // uint pin_C;
-    // uint pin_D;
-    // uint pin_E;
-    // uint pin_F;
-    // uint pin_G;
-
-    // uint pin_com_1;
-    // uint pin_com_2;
-    // uint pin_com_3;
-    // uint pin_com_4;
+struct SevSeg4Obj {
     /*
         FORMAT: 
         segment_pins[8] is an array that stores the segment pins.
@@ -32,17 +20,10 @@ struct SevSeg4Cfg {
     uint com_pins[NUM_DIGITS];
     
     bool is_common_cathode;
-};
 
-class SevSeg4 {
-    int state_ = 0;
-    SevSeg4Cfg cfg_;
-    void SetGPIO(uint pin, bool state); // these two are for portability reasons
-    void InitGPIOOutput(uint pin);
-
+    int state_;
     bool seg_active_state_;
     bool com_active_state_;
-public:
     /*
         frame buffer stores NUM_DIGITS number of 8 bit uint8s. Each element is an 8 element bitfield for the segments.
         The ordering is as follows:
@@ -52,6 +33,10 @@ public:
         MSB                 LSB
     */
     uint8_t frame_buffer_[NUM_DIGITS];
-    SevSeg4(SevSeg4Cfg cfg);
-    void UpdateFSM();
 };
+
+
+void SevSeg_UpdateFSM(struct SevSeg4Obj obj);
+void SevSeg_SetGPIO(uint pin, bool state); // these two are for portability reasons
+void SevSeg_InitGPIOOutput(uint pin);
+void SevSeg_InitGPIOs(struct SevSeg4Obj obj); // call after setting pins, before doing anything else
