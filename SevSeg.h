@@ -3,11 +3,26 @@
 
 #define NUM_DIGITS 4
 
+// thanks mr gpt
+static const uint8_t SEG7_LUT[10] = {
+    /* 0 */ 0x3F,  // A B C D E F
+    /* 1 */ 0x06,  //   B C
+    /* 2 */ 0x5B,  // A B   D E   G
+    /* 3 */ 0x4F,  // A B C D     G
+    /* 4 */ 0x66,  //   B C     F G
+    /* 5 */ 0x6D,  // A   C D   F G
+    /* 6 */ 0x7D,  // A   C D E F G
+    /* 7 */ 0x07,  // A B C
+    /* 8 */ 0x7F,  // A B C D E F G
+    /* 9 */ 0x6F   // A B C D   F G
+};
+// end thanks gpt
 struct SevSeg4Obj {
     /*
         FORMAT: 
         segment_pins[8] is an array that stores the segment pins.
-        segment_pins[8] = { pin_A, pin_B, pin_C, pin_D, pin_E, pin_F, pin_G, pin_DP };
+        segment_pins[8] = { pin_DP, pin_G, pin_F, pin_E, pin_D, pin_C, pin_B, pin_A };
+        
 
         number_of_segments_used is for when some segments are not used such as decimal point. Only supports the last ones unused (can't have pin_A then pin_C)
     
@@ -36,7 +51,7 @@ struct SevSeg4Obj {
 };
 
 
-void SevSeg_UpdateFSM(struct SevSeg4Obj obj);
+void SevSeg_UpdateFSM(struct SevSeg4Obj* obj);
 void SevSeg_SetGPIO(uint pin, bool state); // these two are for portability reasons
 void SevSeg_InitGPIOOutput(uint pin);
-void SevSeg_InitGPIOs(struct SevSeg4Obj obj); // call after setting pins, before doing anything else
+void SevSeg_InitGPIOs(struct SevSeg4Obj* obj); // call after setting pins, before doing anything else

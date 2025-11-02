@@ -1,0 +1,161 @@
+#include "TestStuff.h"
+#include "config.h"
+#include "hardware/i2c.h"
+
+
+#define IO(a, b) ((a)*8 + (b))
+
+const uint8_t REG_NUM_IP_BASE = 0x00; // input port
+const uint8_t REG_NUM_OP_BASE = 0x08; // output port 
+const uint8_t REG_NUM_PI_BASE = 0x10; // polarity inversion 
+const uint8_t REG_NUM_IOC_BASE = 0x18; // io control
+const uint8_t REG_NUM_MSK_BASE = 0x20; // mask interrupt
+const uint8_t CMD_AUTO_INCREMENT_BIT = (1 << 7);
+
+/*
+    Pin mapping scheme
+    pin numbers the Altium Pn_m pins 
+
+    PORT1 and PORT2 have their own mappings, and then there is another map that is between the two.
+
+    what it does:
+    given a pin number from 0 to 44: (this number is the PORT1 pin)
+    has functions that can set the pins on port1, and read the coresponding one on port2.
+*/
+const uint16_t BIT_DIRECT_GPIO = (1 << 15);
+
+// if direct gpio, then number is pin number.
+// if not direct, then number is the PCA9505 pin number after flattening all the IO registers
+const uint16_t PORT1_PINMAPPING[] = {
+    IO(4,7), // P1_1
+    IO(0,0), // P1_2
+    IO(4,6), // P1_3
+    IO(0,1), // P1_4
+    IO(4,5), // P1_5
+    IO(0,2), // P1_6
+    IO(4,4), // P1_7
+    IO(0,3), // P1_8
+    IO(4,3), // P1_9
+    IO(0,4), // P1_10
+    IO(4,2), // P1_11
+    IO(0,5), // P1_12
+    IO(4,1), // P1_13
+    IO(0,6), // P1_14
+    IO(4,0), // P1_15
+    IO(0,7), // P1_16
+    IO(3,7), // P1_17
+    IO(1,0), // P1_18
+    IO(3,6), // P1_19
+    IO(1,1), // P1_20
+    IO(3,5), // P1_21
+    IO(1,2), // P1_22
+    IO(3,4), // P1_23
+    IO(1,3), // P1_24
+    IO(3,3), // P1_25
+    IO(1,4), // P1_26
+    IO(3,2), // P1_27
+    IO(1,5), // P1_28
+    IO(3,1), // P1_29
+    IO(1,6), // P1_30
+    IO(3,0), // P1_31
+    IO(1,7), // P1_32
+    IO(2,7), // P1_33
+    IO(2,0), // P1_34
+    IO(2,6), // P1_35
+    IO(2,1), // P1_36
+    IO(2,5), // P1_37
+    IO(2,2), // P1_38
+    IO(2,4), // P1_39
+    IO(2,3), // P1_40
+    11  | BIT_DIRECT_GPIO, // P1_41
+    7   | BIT_DIRECT_GPIO, // P1_42
+    10  | BIT_DIRECT_GPIO, // P1_43
+    8   | BIT_DIRECT_GPIO, // P1_44
+    9   | BIT_DIRECT_GPIO  // P1_45
+};
+
+bool read_port1(uint pin) {
+    uint16_t mapping = PORT1_PINMAPPING[pin];
+    return read_port_generic(pin, mapping);
+}
+
+bool read_port2(uint pin) {
+    //uint16_t mapping = PORT2_PINMAPPING[pin];
+    return 0;//read_port_generic(pin, mapping);
+}
+
+bool read_port_generic(uint pin, uint16_t mapping) {
+    uint16_t pin_number = mapping & 0b0111111111111111;
+    bool is_direct = mapping &      0b1000000000000000;
+    if (is_direct) {
+        return gpio_get(pin_number);
+    } else {
+        // must read from PCA9505
+        // timing is not important -- just read all 5 registers for convenience
+        uint8_t command_reg = (REG_NUM_IP_BASE & 0b00111111) | (CMD_AUTO_INCREMENT_BIT);
+        uint8_t data[5];
+        i2c_write_blocking(I2C_PORT, PORT1_PCA9505_ADDR, &command_reg, 1, true);
+        i2c_read_blocking(I2C_PORT, PORT1_PCA9505_ADDR, data, 5, false);
+
+        return data[pin_number / 8] | (1 << (pin_number % 8));
+    }
+}
+
+void write_port1(uint pin) {
+
+}
+
+void write_port2(uint pin) {
+
+}
+
+int pca9505_set_pins_hi_z(uint8_t addr) {
+    // set up PCA9505 gpios as inputs, pulled up
+    uint8_t command_reg = (REG_NUM_IOC_BASE & 0b00111111) | (CMD_AUTO_INCREMENT_BIT);
+    uint8_t data[] = {
+        command_reg,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF
+    };
+
+    return i2c_write_blocking(I2C_PORT, addr, data, 5, false);
+}
+
+int pca9505_set_single_pin_state(uint8_t addr, int pin, bool state) {
+    // expect this to completely be wrong pin
+    int bank = pin / 8; // floor(pin / 8) = location of pin (banks)
+    uint8_t command_reg = (REG_NUM_IOC_BASE & 0b00111111) + bank;
+    int bit = pin - bank * 8;
+    uint8_t pin_data = (1 << bit);
+    uint8_t data[] = {command_reg, pin_data};
+    return i2c_write_blocking(I2C_PORT, addr, data, 2, false);
+}
+
+void pca9505_init_i2c() {
+    // pull the reset line high first 
+    gpio_init(PCA9505_RST);
+    gpio_set_dir(PCA9505_RST, GPIO_OUT);
+    gpio_put(PCA9505_RST, 1);
+
+    // I2C Initialisation. Using it at 400Khz.
+    i2c_init(I2C_PORT, 100*1000);
+
+    gpio_set_function(I2C_SDA, GPIO_FUNC_I2C);
+    gpio_set_function(I2C_SCL, GPIO_FUNC_I2C);
+    gpio_pull_up(I2C_SDA);
+    gpio_pull_up(I2C_SCL);
+}
+
+void pca9505_is_alive_questionmark() {
+    int val1 = pca9505_set_pins_hi_z(PORT1_PCA9505_ADDR);
+    int val2 = pca9505_set_pins_hi_z(PORT2_PCA9505_ADDR);
+    printf("Testing PCA9505s\n");
+    if (val1 > 0 && val2 > 0) {
+        printf("both PCA9505 ACK\n");
+    }
+    else {
+        
+        if (val1 > 0) printf("only PORT1 ACK\n");
+        else if (val2 > 0) printf("only PORT2 ACK\n");
+        else printf("neither responded.. gg bro\n");
+    }
+}
