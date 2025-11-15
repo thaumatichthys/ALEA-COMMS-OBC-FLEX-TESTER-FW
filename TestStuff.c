@@ -74,17 +74,71 @@ const uint16_t PORT1_PINMAPPING[] = {
     9   | BIT_DIRECT_GPIO  // P1_45
 };
 
+const uint16_t PORT2_PINMAPPING[] = {
+    IO(4,7), // P2_1
+    IO(0,0), // P2_2
+    IO(4,6), // P2_3
+    IO(0,1), // P2_4
+    IO(4,5), // P2_5
+    IO(0,2), // P2_6
+    IO(4,4), // P2_7
+    IO(0,3), // P2_8
+    IO(4,3), // P2_9
+    IO(0,4), // P2_10
+    IO(4,2), // P2_11
+    IO(0,5), // P2_12
+    IO(4,1), // P2_13
+    IO(0,6), // P2_14
+    IO(4,0), // P2_15
+    IO(0,7), // P2_16
+    IO(3,7), // P2_17
+    IO(1,0), // P2_18
+    IO(3,6), // P2_19
+    IO(1,1), // P2_20
+    IO(3,5), // P2_21
+    IO(1,2), // P2_22
+    IO(3,4), // P2_23
+    IO(1,3), // P2_24
+    IO(3,3), // P2_25
+    IO(1,4), // P2_26
+    IO(3,2), // P2_27
+    IO(1,5), // P2_28
+    IO(3,1), // P2_29
+    IO(1,6), // P2_30
+    IO(3,0), // P2_31
+    IO(1,7), // P2_32
+    IO(2,7), // P2_33
+    IO(2,0), // P2_34
+    IO(2,6), // P2_35
+    IO(2,1), // P2_36
+    IO(2,5), // P2_37
+    IO(2,2), // P2_38
+    IO(2,4), // P2_39
+    IO(2,3), // P2_40
+    6   | BIT_DIRECT_GPIO, // P2_41
+    2   | BIT_DIRECT_GPIO, // P2_42
+    5   | BIT_DIRECT_GPIO, // P2_43
+    3   | BIT_DIRECT_GPIO, // P2_44
+    4   | BIT_DIRECT_GPIO  // P2_45
+};
+
 bool read_port1(uint pin) {
     uint16_t mapping = PORT1_PINMAPPING[pin];
-    return read_port_generic(mapping);
+    return read_port_generic(mapping, 1);
 }
 
 bool read_port2(uint pin) {
-    //uint16_t mapping = PORT2_PINMAPPING[pin];
-    return 0;//read_port_generic(pin, mapping);
+    uint16_t mapping = PORT2_PINMAPPING[pin];
+    return read_port_generic(mapping, 2);
 }
 
-bool read_port_generic(uint16_t mapping) {
+bool read_port_generic(uint16_t mapping, uint8_t port_num) {
+    uint8_t addr;
+    if (port_num == 1)
+        addr = PORT1_PCA9505_ADDR;
+    else if (port_num == 2)
+        addr = PORT2_PCA9505_ADDR;
+
     uint16_t pin_number = mapping & ~BIT_DIRECT_GPIO;
     bool is_direct = mapping & BIT_DIRECT_GPIO;
     if (is_direct) {
@@ -94,8 +148,8 @@ bool read_port_generic(uint16_t mapping) {
         // timing is not important -- just read all 5 registers for convenience
         uint8_t command_reg = (REG_NUM_IP_BASE & 0b00111111) | (CMD_AUTO_INCREMENT_BIT);
         uint8_t data[5];
-        i2c_write_blocking(I2C_PORT, PORT1_PCA9505_ADDR, &command_reg, 1, true);
-        i2c_read_blocking(I2C_PORT, PORT1_PCA9505_ADDR, data, 5, false);
+        i2c_write_blocking(I2C_PORT, addr, &command_reg, 1, true);
+        i2c_read_blocking(I2C_PORT, addr, data, 5, false);
 
         return data[pin_number / 8] & (1 << (pin_number % 8));
     }
@@ -103,26 +157,49 @@ bool read_port_generic(uint16_t mapping) {
 
 void write_port1(uint pin, bool state) {
     uint16_t mapping = PORT1_PINMAPPING[pin];
-    write_port_generic(mapping, state);
+    write_port_generic(mapping, 1, state);
 }
 
 void write_port2(uint pin, bool state) {
-
+    uint16_t mapping = PORT2_PINMAPPING[pin];
+    write_port_generic(mapping, 2, state);
 }
 
-void write_port_generic(uint16_t mapping, bool state) {
+void write_port_generic(uint16_t mapping, uint8_t port_num, bool state) {
+    uint8_t addr;
+    if (port_num == 1)
+        addr = PORT1_PCA9505_ADDR;
+    else if (port_num == 2)
+        addr = PORT2_PCA9505_ADDR;
+
+
     uint16_t pin_number = mapping & ~BIT_DIRECT_GPIO;
+    // should probably check pin_number bounds
     bool is_direct = mapping & BIT_DIRECT_GPIO;
     if (is_direct) {
+        gpio_set_dir(pin_number, GPIO_OUT);
         gpio_put(pin_number, state);
     } else {
-        // must read from PCA9505
-        // timing is not important -- just read all 5 registers for convenience
-        // read from the OP reg first, modify it, and write it back to not mess up the other pins
-        uint8_t command_reg = (REG_NUM_OP_BASE & 0b00111111) | (CMD_AUTO_INCREMENT_BIT);
+        uint8_t command_reg = (REG_NUM_IOC_BASE & 0b00111111) | (CMD_AUTO_INCREMENT_BIT);
         uint8_t data[5];
-        i2c_write_blocking(I2C_PORT, PORT1_PCA9505_ADDR, &command_reg, 1, true);
-        i2c_read_blocking(I2C_PORT, PORT1_PCA9505_ADDR, data, 5, false);
+        // first, set that specific pin to low impedance
+        i2c_write_blocking(I2C_PORT, addr, &command_reg, 1, true);
+        i2c_read_blocking(I2C_PORT, addr, data, 5, false);
+
+        // low Z
+        data[pin_number / 8] &= ~(1 << (pin_number % 8));
+
+        i2c_write_blocking(I2C_PORT, addr, &command_reg, 1, true);
+        i2c_write_blocking(I2C_PORT, addr, data, 5, false);
+
+
+        // then set the output port value
+        
+        command_reg = (REG_NUM_OP_BASE & 0b00111111) | (CMD_AUTO_INCREMENT_BIT);
+        //uint8_t data[5];
+
+        i2c_write_blocking(I2C_PORT, addr, &command_reg, 1, true);
+        i2c_read_blocking(I2C_PORT, addr, data, 5, false);
 
         if (state) {
             data[pin_number / 8] |= (1 << (pin_number % 8));
@@ -130,31 +207,53 @@ void write_port_generic(uint16_t mapping, bool state) {
         else {
             data[pin_number / 8] &= ~(1 << (pin_number % 8));
         }
-        i2c_write_blocking(I2C_PORT, PORT1_PCA9505_ADDR, &command_reg, 1, true);
-        i2c_write_blocking(I2C_PORT, PORT1_PCA9505_ADDR, data, 5, false);
+        i2c_write_blocking(I2C_PORT, addr, &command_reg, 1, true);
+        i2c_write_blocking(I2C_PORT, addr, data, 5, false);
     }
 }
 
-int pca9505_set_pins_hi_z(uint8_t addr) {
+int pca9505_set_pins_hi_z(uint8_t port_num) {
+    uint8_t addr;
+    if (port_num == 1)
+        addr = PORT1_PCA9505_ADDR;
+    else if (port_num == 2)
+        addr = PORT2_PCA9505_ADDR;
     // set up PCA9505 gpios as inputs, pulled up
     uint8_t command_reg = (REG_NUM_IOC_BASE & 0b00111111) | (CMD_AUTO_INCREMENT_BIT);
     uint8_t data[] = {
         command_reg,
         0xFF, 0xFF, 0xFF, 0xFF, 0xFF
     };
+    
+    // then, set the direct GPIOs high Z too
+    for (int i = 0; i < 45; i++) {
+        uint16_t mapping;
+        if (port_num == 1)
+            mapping = PORT1_PINMAPPING[i];
+        else if (port_num == 2)
+            mapping = PORT2_PINMAPPING[i];
+        
+        bool is_direct = mapping & BIT_DIRECT_GPIO;
+        uint16_t pin_number = mapping & ~BIT_DIRECT_GPIO;
+
+        if (is_direct) {
+            gpio_set_dir(pin_number, GPIO_IN);
+            gpio_pull_up(pin_number);
+        }
+    }
 
     return i2c_write_blocking(I2C_PORT, addr, data, 6, false);
 }
 
-int pca9505_set_single_pin_state(uint8_t addr, int pin, bool state) {
-    // expect this to completely be wrong pin
-    int bank = pin / 8; // floor(pin / 8) = location of pin (banks)
-    uint8_t command_reg = (REG_NUM_IOC_BASE & 0b00111111) + bank;
-    int bit = pin - bank * 8;
-    uint8_t pin_data = (1 << bit);
-    uint8_t data[] = {command_reg, pin_data};
-    return i2c_write_blocking(I2C_PORT, addr, data, 2, false);
-}
+// int pca9505_set_single_pin_state(uint8_t addr, int pin, bool state) {
+//     // expect this to completely be wrong pin
+//     int bank = pin / 8; // floor(pin / 8) = location of pin (banks)
+//     uint8_t command_reg = (REG_NUM_IOC_BASE & 0b00111111) + bank;
+//     int bit = pin - bank * 8;
+//     uint8_t pin_data = (1 << bit);
+//     uint8_t data[] = {command_reg, pin_data};
+//     return i2c_write_blocking(I2C_PORT, addr, data, 2, false);
+// }
 
 void pca9505_init_i2c() {
     // pull the reset line high first 
@@ -169,11 +268,33 @@ void pca9505_init_i2c() {
     gpio_set_function(I2C_SCL, GPIO_FUNC_I2C);
     gpio_pull_up(I2C_SDA);
     gpio_pull_up(I2C_SCL);
+
+    for (int i = 0; i < 45; i++) {
+        uint16_t mapping = PORT1_PINMAPPING[i];
+        bool is_direct = mapping & BIT_DIRECT_GPIO;
+        
+
+        if (is_direct) {
+            uint16_t pin_number = mapping & ~BIT_DIRECT_GPIO;
+            gpio_init(pin_number);
+        }
+    }
+    for (int i = 0; i < 45; i++) {
+        uint16_t mapping = PORT2_PINMAPPING[i];
+        bool is_direct = mapping & BIT_DIRECT_GPIO;
+        
+
+        if (is_direct) {
+            uint16_t pin_number = mapping & ~BIT_DIRECT_GPIO;
+            gpio_init(pin_number);
+        }
+    }
+    
 }
 
 void pca9505_is_alive_questionmark() {
-    int val1 = pca9505_set_pins_hi_z(PORT1_PCA9505_ADDR);
-    int val2 = pca9505_set_pins_hi_z(PORT2_PCA9505_ADDR);
+    int val1 = pca9505_set_pins_hi_z(1);
+    int val2 = pca9505_set_pins_hi_z(2);
     printf("Testing PCA9505s\n");
     if (val1 > 0 && val2 > 0) {
         printf("both PCA9505 ACK\n");

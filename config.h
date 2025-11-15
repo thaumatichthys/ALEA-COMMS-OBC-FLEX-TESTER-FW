@@ -14,6 +14,8 @@
 #define DISP_SEG_F      28 // 20
 #define DISP_SEG_G      22 // 21
 
+#define BUTTON_PIN      13
+
 #define COMMON_CATHODE  true
 #define PCA9505_RST     14
 #define PCA9505_OE      12

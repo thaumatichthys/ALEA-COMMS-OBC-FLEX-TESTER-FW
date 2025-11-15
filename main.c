@@ -6,11 +6,15 @@
 #include "SevSeg.h"
 #include "config.h"
 #include "TestStuff.h"
+#include "ButtonHandler.h"
+
 
 
 struct repeating_timer seven_seg_timer;
-struct SevSeg4Obj sevseg;
+struct repeating_timer button_poll_timer;
 
+struct SevSeg4Obj sevseg;
+struct ButtonHandlerObj button;
 
 
 // uint64_t read_all_pins(uint8_t addr) {
@@ -29,6 +33,30 @@ struct SevSeg4Obj sevseg;
 
 bool SevenSegment_timer_ISR(struct repeating_timer *t) {
     SevSeg_UpdateFSM(&sevseg);
+    return true;
+}
+
+void Button_callback(int pin) {
+    printf("button was presseed\n");
+
+    pca9505_set_pins_hi_z(1);
+    pca9505_set_pins_hi_z(2);
+    
+    write_port1(41, 0);
+    write_port1(44, 0);
+    
+
+    for (int i = 0; i < 45; i++) {
+        bool state = read_port2(i);
+        
+        printf("%d: %d\n", i, state);
+
+        //sleep_ms(10);
+    }
+}
+
+bool Button_poll_ISR() {
+    UpdateButton(&button);
     return true;
 }
 
@@ -55,33 +83,26 @@ int main() {
     sevseg.segment_pins[6] = DISP_SEG_G;
     sevseg.number_of_segments_used = 7;
     sevseg.is_common_cathode = true;
-    // sevseg.com_active_state_ = 0;
-    // sevseg.seg_active_state_ = 1;
-    
 
-    //uint thing = 0b00000000;
-
-    // sevseg.frame_buffer_[0] = 0xFA;
-    // sevseg.frame_buffer_[1] = 0xFB;
-    // sevseg.frame_buffer_[2] = 0xFC;
-    // sevseg.frame_buffer_[3] = 0xFD;
-
-    // for (int i = 0; i < 4; i++) {
-    //     sevseg.frame_buffer_[i] = thing;
-    // }
+    InitButton(&button, BUTTON_PIN, 0, Button_callback);
 
     SevSeg_InitGPIOs(&sevseg);
     
 
     add_repeating_timer_us(500, SevenSegment_timer_ISR, NULL, &seven_seg_timer);
+    //add_repeating_timer_us(1000, Button_poll_ISR, NULL, &button_poll_timer);
+
+
+
 
     int dummy = 0; 
     while(1) {
         gpio_put(25, 1);
-        sleep_ms(200);
+        sleep_ms(2);
         gpio_put(25, 0);
-        sleep_ms(200);
-        pca9505_is_alive_questionmark();
+        sleep_ms(2);
+        //pca9505_is_alive_questionmark();
+        Button_poll_ISR();
 
         uint8_t thing = SEG7_LUT[dummy++];
         if (dummy >= 10) dummy = 0;
