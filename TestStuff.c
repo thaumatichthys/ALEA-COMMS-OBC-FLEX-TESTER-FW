@@ -122,22 +122,18 @@ const uint16_t PORT2_PINMAPPING[] = {
     4   | BIT_DIRECT_GPIO  // P2_45
 };
 
-bool read_port1(uint pin) {
-    uint16_t mapping = PORT1_PINMAPPING[pin];
-    return read_port_generic(mapping, 1);
-}
-
-bool read_port2(uint pin) {
-    uint16_t mapping = PORT2_PINMAPPING[pin];
-    return read_port_generic(mapping, 2);
-}
-
-bool read_port_generic(uint16_t mapping, uint8_t port_num) {
+bool read_from_port(uint pin, uint8_t port_num) {
+    uint16_t mapping;
     uint8_t addr;
-    if (port_num == 1)
+    if (port_num == 1) {
+        mapping = PORT1_PINMAPPING[pin];
         addr = PORT1_PCA9505_ADDR;
-    else if (port_num == 2)
+    }
+        
+    else if (port_num == 2) {
+        mapping = PORT2_PINMAPPING[pin];
         addr = PORT2_PCA9505_ADDR;
+    }  
 
     uint16_t pin_number = mapping & ~BIT_DIRECT_GPIO;
     bool is_direct = mapping & BIT_DIRECT_GPIO;
@@ -154,23 +150,53 @@ bool read_port_generic(uint16_t mapping, uint8_t port_num) {
         return data[pin_number / 8] & (1 << (pin_number % 8));
     }
 }
-
-void write_port1(uint pin, bool state) {
-    uint16_t mapping = PORT1_PINMAPPING[pin];
-    write_port_generic(mapping, 1, state);
-}
-
-void write_port2(uint pin, bool state) {
-    uint16_t mapping = PORT2_PINMAPPING[pin];
-    write_port_generic(mapping, 2, state);
-}
-
-void write_port_generic(uint16_t mapping, uint8_t port_num, bool state) {
+uint64_t read_all_from_port(uint8_t port_num) {
+    uint16_t* mapping_ptr;
     uint8_t addr;
-    if (port_num == 1)
+    if (port_num == 1) {
+        mapping_ptr = PORT1_PINMAPPING;
         addr = PORT1_PCA9505_ADDR;
-    else if (port_num == 2)
+    }
+        
+    else if (port_num == 2) {
+        mapping_ptr = PORT2_PINMAPPING;
         addr = PORT2_PCA9505_ADDR;
+    }  
+    // read from PCA9505
+    uint8_t command_reg = (REG_NUM_IP_BASE & 0b00111111) | (CMD_AUTO_INCREMENT_BIT);
+    uint8_t data[5];
+    i2c_write_blocking(I2C_PORT, addr, &command_reg, 1, true);
+    i2c_read_blocking(I2C_PORT, addr, data, 5, false);
+
+
+    uint64_t result = 0; 
+
+    for (int i = 0; i < 45; i++) {
+        uint16_t mapping = mapping_ptr[i];
+        uint16_t pin_number = mapping & ~BIT_DIRECT_GPIO;
+        bool is_direct = mapping & BIT_DIRECT_GPIO;
+
+        if (!is_direct) {
+            result |= (uint64_t)((bool)(data[pin_number / 8] & (1 << (pin_number % 8)))) << i;
+        }
+        else {
+            result |= (uint64_t)((bool)gpio_get(pin_number)) << i;
+        }
+    }
+    return result;
+}
+void write_to_port(uint pin, uint8_t port_num, bool state) {
+    uint16_t mapping;
+    uint8_t addr;
+    if (port_num == 1) {
+        mapping = PORT1_PINMAPPING[pin];
+        addr = PORT1_PCA9505_ADDR;
+    }
+        
+    else if (port_num == 2) {
+        mapping = PORT2_PINMAPPING[pin];
+        addr = PORT2_PCA9505_ADDR;
+    } 
 
 
     uint16_t pin_number = mapping & ~BIT_DIRECT_GPIO;
@@ -181,34 +207,32 @@ void write_port_generic(uint16_t mapping, uint8_t port_num, bool state) {
         gpio_put(pin_number, state);
     } else {
         uint8_t command_reg = (REG_NUM_IOC_BASE & 0b00111111) | (CMD_AUTO_INCREMENT_BIT);
-        uint8_t data[5];
+        uint8_t data[6];
         // first, set that specific pin to low impedance
         i2c_write_blocking(I2C_PORT, addr, &command_reg, 1, true);
-        i2c_read_blocking(I2C_PORT, addr, data, 5, false);
+        i2c_read_blocking(I2C_PORT, addr, &data[1], 5, false);
 
         // low Z
-        data[pin_number / 8] &= ~(1 << (pin_number % 8));
+        data[pin_number / 8 + 1] &= ~(1 << (pin_number % 8));
+        data[0] = command_reg;
 
-        i2c_write_blocking(I2C_PORT, addr, &command_reg, 1, true);
-        i2c_write_blocking(I2C_PORT, addr, data, 5, false);
-
+        // dont have two separate writes for cmd and data, so put cmd in data[0]
+        i2c_write_blocking(I2C_PORT, addr, data, 6, false);
 
         // then set the output port value
-        
         command_reg = (REG_NUM_OP_BASE & 0b00111111) | (CMD_AUTO_INCREMENT_BIT);
-        //uint8_t data[5];
 
         i2c_write_blocking(I2C_PORT, addr, &command_reg, 1, true);
-        i2c_read_blocking(I2C_PORT, addr, data, 5, false);
+        i2c_read_blocking(I2C_PORT, addr, &data[1], 5, false);
 
         if (state) {
-            data[pin_number / 8] |= (1 << (pin_number % 8));
+            data[pin_number / 8 + 1] |= (1 << (pin_number % 8));
         }
         else {
-            data[pin_number / 8] &= ~(1 << (pin_number % 8));
+            data[pin_number / 8 + 1] &= ~(1 << (pin_number % 8));
         }
-        i2c_write_blocking(I2C_PORT, addr, &command_reg, 1, true);
-        i2c_write_blocking(I2C_PORT, addr, data, 5, false);
+        data[0] = command_reg;
+        i2c_write_blocking(I2C_PORT, addr, data, 6, false);
     }
 }
 
@@ -272,8 +296,6 @@ void pca9505_init_i2c() {
     for (int i = 0; i < 45; i++) {
         uint16_t mapping = PORT1_PINMAPPING[i];
         bool is_direct = mapping & BIT_DIRECT_GPIO;
-        
-
         if (is_direct) {
             uint16_t pin_number = mapping & ~BIT_DIRECT_GPIO;
             gpio_init(pin_number);
@@ -282,14 +304,17 @@ void pca9505_init_i2c() {
     for (int i = 0; i < 45; i++) {
         uint16_t mapping = PORT2_PINMAPPING[i];
         bool is_direct = mapping & BIT_DIRECT_GPIO;
-        
-
         if (is_direct) {
             uint16_t pin_number = mapping & ~BIT_DIRECT_GPIO;
             gpio_init(pin_number);
         }
     }
-    
+    pca9505_set_pins_hi_z(1);
+    pca9505_set_pins_hi_z(2);
+    // assert OE
+    gpio_init(PCA9505_OE);
+    gpio_set_dir(PCA9505_OE, GPIO_OUT);
+    gpio_put(PCA9505_OE, 0);
 }
 
 void pca9505_is_alive_questionmark() {

@@ -37,21 +37,25 @@ bool SevenSegment_timer_ISR(struct repeating_timer *t) {
 }
 
 void Button_callback(int pin) {
-    printf("button was presseed\n");
+    printf("button was pressed\n");
 
     pca9505_set_pins_hi_z(1);
     pca9505_set_pins_hi_z(2);
     
-    write_port1(41, 0);
-    write_port1(44, 0);
-    
-
-    for (int i = 0; i < 45; i++) {
-        bool state = read_port2(i);
+    for (int j = 0; j < 45; j++) {
+        pca9505_set_pins_hi_z(1);
+        write_to_port(j, 1, 0);
+        sleep_ms(10);
+        uint64_t res = read_all_from_port(2);
         
-        printf("%d: %d\n", i, state);
+        int active = -1;
 
-        //sleep_ms(10);
+        for (int i = 0; i < 45; i++) {
+            if ((bool)(res & (uint64_t)1 << i) == 0) {
+                active = i;
+            }
+        }
+        printf("%d --> %d\n", j, active);
     }
 }
 

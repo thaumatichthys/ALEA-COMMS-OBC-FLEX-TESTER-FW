@@ -40,6 +40,11 @@
     "files.associations": {
         "cstdint": "cpp",
         "compare": "c",
-        "stdlib.h": "c"
+        "stdlib.h": "c",
+        "array": "c",
+        "string": "c",
+        "string_view": "c",
+        "span": "c",
+        "format": "c"
     }
 }
