@@ -45,6 +45,7 @@
         "string": "c",
         "string_view": "c",
         "span": "c",
-        "format": "c"
+        "format": "c",
+        "stdio.h": "c"
     }
 }

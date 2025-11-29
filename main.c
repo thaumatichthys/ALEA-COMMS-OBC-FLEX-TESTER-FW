@@ -36,11 +36,62 @@ bool SevenSegment_timer_ISR(struct repeating_timer *t) {
     return true;
 }
 
+int mapping_function(int port1) {
+    // returns mapped port2
+    // this should probably be a giant LUT
+    if (port1 != 0) {
+        return port1 - 1;
+    }
+    else return 44;
+}
+int error_array[45];
+int num_errs = 0;
+
+int display_state; // 0 means display "good" or "err", >0 means display the error pins
+
+void Update_display_state() {
+    if (display_state == 0) {
+        if (num_errs == 0) {
+            // GOOD
+            sevseg.frame_buffer_[0] = 0b01111101;
+            sevseg.frame_buffer_[1] = 0b01011100;
+            sevseg.frame_buffer_[2] = 0b01011100; 
+            sevseg.frame_buffer_[3] = 0b01011110;
+        }
+        else {
+            // Err
+            sevseg.frame_buffer_[0] = 0b01111001;  // E
+            sevseg.frame_buffer_[1] = 0b01010000;  // r
+            sevseg.frame_buffer_[2] = SEG7_LUT[num_errs / 10];
+            sevseg.frame_buffer_[3] = SEG7_LUT[num_errs % 10];
+        }
+    }
+    else {
+        // read out the errors
+        sevseg.frame_buffer_[0] = SEG7_LUT[1]; // '1'
+        sevseg.frame_buffer_[1] = 0b01000000; // '-'
+        int error_pin = error_array[display_state - 1];
+        sevseg.frame_buffer_[2] = SEG7_LUT[error_pin / 10];
+        sevseg.frame_buffer_[3] = SEG7_LUT[error_pin % 10];
+    }
+}
+
 void Button_callback(int pin) {
     printf("button was pressed\n");
 
+    // rotate display
+    display_state++;
+    if (display_state > num_errs) display_state = 0;
+
+    Update_display_state();
+}
+
+void Button_hold_callback(int pin) {
+    printf("button held\n");
     pca9505_set_pins_hi_z(1);
     pca9505_set_pins_hi_z(2);
+    num_errs = 0;
+    display_state = 0;
     
     for (int j = 0; j < 45; j++) {
         pca9505_set_pins_hi_z(1);
@@ -56,7 +107,12 @@ void Button_callback(int pin) {
             }
         }
         printf("%d --> %d\n", j, active);
+        if (mapping_function(j) != active) {
+            // error found
+            error_array[num_errs++] = j;
+        }
     }
+    Update_display_state();
 }
 
 bool Button_poll_ISR() {
@@ -88,7 +144,7 @@ int main() {
     sevseg.number_of_segments_used = 7;
     sevseg.is_common_cathode = true;
 
-    InitButton(&button, BUTTON_PIN, 0, Button_callback);
+    InitButton(&button, BUTTON_PIN, 0, Button_callback, Button_hold_callback);
 
     SevSeg_InitGPIOs(&sevseg);
     
@@ -96,23 +152,31 @@ int main() {
     add_repeating_timer_us(500, SevenSegment_timer_ISR, NULL, &seven_seg_timer);
     //add_repeating_timer_us(1000, Button_poll_ISR, NULL, &button_poll_timer);
 
+    // sevseg.frame_buffer_[0] = 0b01111001; // 0b01001111;
+    // sevseg.frame_buffer_[1] = 0b01010000; // 0b00000101;
+    // sevseg.frame_buffer_[2] = SEG7_LUT[4];
+    // sevseg.frame_buffer_[3] = SEG7_LUT[1];
+    sevseg.frame_buffer_[0] = 0b01111101;// 1011111//0b01101111;//   1111011
+    sevseg.frame_buffer_[1] = 0b01011100;//   0011101; // 0b00000101;
+    sevseg.frame_buffer_[2] = 0b01011100; // SEG7_LUT[4];
+    sevseg.frame_buffer_[3] = 0b01011110;//  0111101 SEG7_LUT[1];
 
 
 
     int dummy = 0; 
     while(1) {
         gpio_put(25, 1);
-        sleep_ms(2);
+        //sleep_ms(2);
         gpio_put(25, 0);
-        sleep_ms(2);
+        //sleep_ms(2);
         //pca9505_is_alive_questionmark();
         Button_poll_ISR();
 
-        uint8_t thing = SEG7_LUT[dummy++];
-        if (dummy >= 10) dummy = 0;
+        // uint8_t thing = SEG7_LUT[dummy++];
+        // if (dummy >= 10) dummy = 0;
 
-        for (int i = 0; i < 4; i++) {
-            sevseg.frame_buffer_[i] = thing;
-        }
+        // for (int i = 0; i < 4; i++) {
+        //     sevseg.frame_buffer_[i] = thing;
+        // }
     }
 }
